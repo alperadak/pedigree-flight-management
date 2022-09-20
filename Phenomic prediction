@@ -1,0 +1,307 @@
+### this code is for the prediction that is results of figure 6; here only 2017 data was used; however 2019 is also attahed #####
+
+rm(list=ls())
+
+library(caret)
+library(missForest)
+library(caret)
+library(glmnet)
+library(mlbench)
+library(psych)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+
+setwd("set your directory")
+
+
+data17 <- read.csv("df_2017.csv") # this data was used here
+data19 <- read.csv("df_2019.csv")
+
+######### scaling the phenomic data for PM + PMF ############
+
+data17_P <-data.frame(cbind(data17[,c(2:3)], missForest::missForest(scale(data17[,4:19]))$ximp))
+data19_P <-data.frame(cbind(data19[,c(2:3)], missForest::missForest(scale(data19[,4:15]))$ximp))
+
+data17_P_LP <- split(data17_P,data17_P$Trial)$LP
+data17_P_OI <- split(data17_P,data17_P$Trial)$OI
+
+data17_P_LP <- data17_P_LP[,-1]
+data17_P_OI <- data17_P_OI[,-1]
+
+data19_P_LP <- split(data19_P,data19_P$Trial)$LP
+data19_P_OI <- split(data19_P,data19_P$Trial)$OI
+
+data19_P_LP <- data19_P_LP[,-1]
+data19_P_OI <- data19_P_OI[,-1]
+
+
+############ Core(s) to be used  in he rdiciton #######
+
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 3)
+registerDoParallel(cluster)
+
+################ cross valdiation ############
+
+custom <- trainControl(method= "repeatedcv",
+                       number=5,
+                       repeats = 3,
+                       verboseIter = T)
+traits = 1
+cycles = 200
+
+
+acc_ridge1 = matrix(nrow = cycles, ncol = traits)
+acc_ridge2 = matrix(nrow = cycles, ncol = traits)
+acc_ridge3 = matrix(nrow = cycles, ncol = traits)
+acc_ridge4 = matrix(nrow = cycles, ncol = traits)
+
+acc_lasso1 = matrix(nrow = cycles, ncol = traits)
+acc_lasso2 = matrix(nrow = cycles, ncol = traits)
+acc_lasso3 = matrix(nrow = cycles, ncol = traits)
+acc_lasso4 = matrix(nrow = cycles, ncol = traits)
+
+
+
+for (r in 1:cycles)
+{
+  ind <- createDataPartition(data17_P_OI$Yield, p=0.6, list=F)
+  
+  Train_OI17 <- data17_P_OI[ind,]
+  Test_OI17 <- data17_P_OI[-ind,]
+  
+  Train_LP17 <- data17_P_LP[ind,]
+  Test_LP17 <- data17_P_LP[-ind,]
+  
+  
+  ridge <- train(Yield~.,
+                 Train_OI17,
+                 method = 'glmnet',
+                 tuneGrid= expand.grid(alpha=0,
+                                       lambda = seq(0.0001,1, length=5)),
+                 trControl= custom)
+  
+  predicted_Train_OI17_ridge <- predict(ridge,Train_OI17)
+  acc_ridge1[r,1] <- cor(predicted_Train_OI17_ridge , Train_OI17$Yield, use="complete")  
+  
+  predicted_Test_OI17_ridge <- predict(ridge,Test_OI17)
+  acc_ridge2[r,1] <- cor(predicted_Test_OI17_ridge , Test_OI17$Yield, use="complete")
+  
+  predicted_Train_LP17_ridge <- predict(ridge,Train_LP17)
+  acc_ridge3[r,1] <- cor(predicted_Train_LP17_ridge  , Train_LP17$Yield, use="complete")
+  
+  predicted_Test_LP17_ridge <- predict(ridge,Test_LP17)
+  acc_ridge4[r,1] <- cor(predicted_Test_LP17_ridge , Test_LP17$Yield, use="complete")
+  
+  
+  lasso <- train(Yield~.,
+                 Train_OI17,
+                 method = 'glmnet',
+                 tuneGrid= expand.grid(alpha=1,
+                                       lambda = seq(0.0001,1, length=5)),
+                 trControl= custom)
+  
+  predicted_Train_OI17_lasso <- predict(lasso,Train_OI17)
+  acc_lasso1[r,1] <- cor(predicted_Train_OI17_lasso , Train_OI17$Yield, use="complete")  
+  
+  predicted_Test_OI17_lasso <- predict(lasso,Test_OI17)
+  acc_lasso2[r,1] <- cor(predicted_Test_OI17_lasso , Test_OI17$Yield, use="complete")
+  
+  predicted_Train_LP17_lasso <- predict(lasso,Train_LP17)
+  acc_lasso3[r,1] <- cor(predicted_Train_LP17_lasso  , Train_LP17$Yield, use="complete")
+  
+  predicted_Test_LP17_lasso <- predict(lasso,Test_LP17)
+  acc_lasso4[r,1] <- cor(predicted_Test_LP17_lasso , Test_LP17$Yield, use="complete")
+  
+}
+
+r1 <- as.data.frame(acc_ridge1)
+r1[,2] <- "CV1"
+r1[,3] <- "ridge"
+
+r2 <- as.data.frame(acc_ridge2)
+r2[,2] <- "CV2"
+r2[,3] <- "ridge"
+
+r3 <- as.data.frame(acc_ridge3)
+r3[,2] <- "CV3"
+r3[,3] <- "ridge"
+
+r4 <- as.data.frame(acc_ridge4)
+r4[,2] <- "CV4"
+r4[,3] <- "ridge"
+
+l1 <- as.data.frame(acc_lasso1)
+l1[,2] <- "CV1"
+l1[,3] <- "lasso"
+
+l2 <- as.data.frame(acc_lasso2)
+l2[,2] <- "CV2"
+l2[,3] <- "lasso"
+
+l3 <- as.data.frame(acc_lasso3)
+l3[,2] <- "CV3"
+l3[,3] <- "lasso"
+
+l4 <- as.data.frame(acc_lasso4)
+l4[,2] <- "CV4"
+l4[,3] <- "lasso"
+
+prediction_ability_PMF_and_PM_phenomic_2017<- rbind(r1,r2,r3,r4,l1,l2,l3,l4)
+names(prediction_ability_PMF_and_PM_phenomic_2017)[1:3] <- c("Prediction ability", "CVs", "Model")
+
+p<-ggplot(prediction_ability_PMF_and_PM_phenomic_2017, aes(x=CVs, y=`Prediction ability`, color=Model)) +
+  geom_boxplot()
+p
+
+
+######### scaling the phenomic data for PMF ############
+
+rm(list=ls())
+
+setwd("set your directory")
+
+
+data17 <- read.csv("df_2017.csv")
+data19 <- read.csv("df_2019.csv")
+
+data17_P <-data.frame(cbind(data17[,c(2:3)], missForest::missForest(scale(data17[,6:19]))$ximp))
+data19_P <-data.frame(cbind(data19[,c(2:3)], missForest::missForest(scale(data19[,6:15]))$ximp))
+
+data17_P_LP <- split(data17_P,data17_P$Trial)$LP
+data17_P_OI <- split(data17_P,data17_P$Trial)$OI
+
+data17_P_LP <- data17_P_LP[,-1]
+data17_P_OI <- data17_P_OI[,-1]
+
+data19_P_LP <- split(data19_P,data19_P$Trial)$LP
+data19_P_OI <- split(data19_P,data19_P$Trial)$OI
+
+data19_P_LP <- data19_P_LP[,-1]
+data19_P_OI <- data19_P_OI[,-1]
+
+
+
+############ Core(s) to be used  in he rdiciton #######
+
+library(parallel)
+library(doParallel)
+cluster <- makeCluster(detectCores() - 3)
+registerDoParallel(cluster)
+
+################ cross valdiation ############
+
+custom <- trainControl(method= "repeatedcv",
+                       number=5,
+                       repeats = 3,
+                       verboseIter = T)
+traits = 1
+cycles = 200
+
+
+acc_ridge1 = matrix(nrow = cycles, ncol = traits)
+acc_ridge2 = matrix(nrow = cycles, ncol = traits)
+acc_ridge3 = matrix(nrow = cycles, ncol = traits)
+acc_ridge4 = matrix(nrow = cycles, ncol = traits)
+
+acc_lasso1 = matrix(nrow = cycles, ncol = traits)
+acc_lasso2 = matrix(nrow = cycles, ncol = traits)
+acc_lasso3 = matrix(nrow = cycles, ncol = traits)
+acc_lasso4 = matrix(nrow = cycles, ncol = traits)
+
+
+
+for (r in 1:cycles)
+{
+  ind <- createDataPartition(data19_P_OI$Yield, p=0.6, list=F)
+  
+  Train_OI17 <- data17_P_OI[ind,]
+  Test_OI17 <- data17_P_OI[-ind,]
+  
+  Train_LP17 <- data17_P_LP[ind,]
+  Test_LP17 <- data17_P_LP[-ind,]
+  
+  
+  ridge <- train(Yield~.,
+                 Train_OI17,
+                 method = 'glmnet',
+                 tuneGrid= expand.grid(alpha=0,
+                                       lambda = seq(0.0001,1, length=5)),
+                 trControl= custom)
+  
+  predicted_Train_OI17_ridge <- predict(ridge,Train_OI17)
+  acc_ridge1[r,1] <- cor(predicted_Train_OI17_ridge , Train_OI17$Yield, use="complete")  
+  
+  predicted_Test_OI17_ridge <- predict(ridge,Test_OI17)
+  acc_ridge2[r,1] <- cor(predicted_Test_OI17_ridge , Test_OI17$Yield, use="complete")
+  
+  predicted_Train_LP17_ridge <- predict(ridge,Train_LP17)
+  acc_ridge3[r,1] <- cor(predicted_Train_LP17_ridge  , Train_LP17$Yield, use="complete")
+  
+  predicted_Test_LP17_ridge <- predict(ridge,Test_LP17)
+  acc_ridge4[r,1] <- cor(predicted_Test_LP17_ridge , Test_LP17$Yield, use="complete")
+  
+  
+  lasso <- train(Yield~.,
+                 Train_OI17,
+                 method = 'glmnet',
+                 tuneGrid= expand.grid(alpha=1,
+                                       lambda = seq(0.0001,1, length=5)),
+                 trControl= custom)
+  
+  predicted_Train_OI17_lasso <- predict(lasso,Train_OI17)
+  acc_lasso1[r,1] <- cor(predicted_Train_OI17_lasso , Train_OI17$Yield, use="complete")  
+  
+  predicted_Test_OI17_lasso <- predict(lasso,Test_OI17)
+  acc_lasso2[r,1] <- cor(predicted_Test_OI17_lasso , Test_OI17$Yield, use="complete")
+  
+  predicted_Train_LP17_lasso <- predict(lasso,Train_LP17)
+  acc_lasso3[r,1] <- cor(predicted_Train_LP17_lasso  , Train_LP17$Yield, use="complete")
+  
+  predicted_Test_LP17_lasso <- predict(lasso,Test_LP17)
+  acc_lasso4[r,1] <- cor(predicted_Test_LP17_lasso , Test_LP17$Yield, use="complete")
+  
+}
+
+r1 <- as.data.frame(acc_ridge1)
+r1[,2] <- "CV1"
+r1[,3] <- "ridge"
+
+r2 <- as.data.frame(acc_ridge2)
+r2[,2] <- "CV2"
+r2[,3] <- "ridge"
+
+r3 <- as.data.frame(acc_ridge3)
+r3[,2] <- "CV3"
+r3[,3] <- "ridge"
+
+r4 <- as.data.frame(acc_ridge4)
+r4[,2] <- "CV4"
+r4[,3] <- "ridge"
+
+l1 <- as.data.frame(acc_lasso1)
+l1[,2] <- "CV1"
+l1[,3] <- "lasso"
+
+l2 <- as.data.frame(acc_lasso2)
+l2[,2] <- "CV2"
+l2[,3] <- "lasso"
+
+l3 <- as.data.frame(acc_lasso3)
+l3[,2] <- "CV3"
+l3[,3] <- "lasso"
+
+l4 <- as.data.frame(acc_lasso4)
+l4[,2] <- "CV4"
+l4[,3] <- "lasso"
+
+prediction_ability_PMF_phenomic_2017<- rbind(r1,r2,r3,r4,l1,l2,l3,l4)
+names(prediction_ability_PMF_phenomic_2017)[1:3] <- c("Prediction ability", "CVs", "Model")
+
+library(ggplot2)
+
+p<-ggplot(prediction_ability_PMF_phenomic_2017, aes(x=CVs, y=`Prediction ability`, color=Model)) +
+  geom_boxplot()
+p

@@ -1,4 +1,4 @@
-## Below code is the three way interaction model; CHM values of late and optimal plantings in 2017 were used that was the results of Figure 2A  in the manuscript #### 
+## The code below represents the three-way interaction model; it uses CHM values from late and optimal plantings in 2017, which were the results depicted in Figure 2A of the manuscript available at https://doi.org/10.1002/ppj2.20057 #### 
 
 rm(list=ls())
 
